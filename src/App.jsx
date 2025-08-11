@@ -2,30 +2,27 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 // =========================================
 // Circuit Word Puzzle — Google Sheets + 10 Random Words + Logic Gate Viz
-// - "게임 시작(10문제)" 클릭 시: 구글시트 로드 → 10문제 랜덤 세트 → 즉시 시작
-// - 구글시트 A열 2행부터 단어 로드 (링크 공개 필요)
-// - 각 문제: 영어 정의(영문 설명) 힌트 표시 (dictionaryapi.dev → 실패 시 대체 힌트)
-// - 오답 시: 현재 단어는 포기 → 다른 단어를 즉시 랜덤 출제, 오답 목록에 기록
-// - 종료 시: 팝업에 오답 목록(Your Answer → Correct) 표시
 // =========================================
+
+const DND_MIME = "application/x-letter"; // 🔹드래그 페이로드 식별자
 
 export default function App() {
   const [wordsLoaded, setWordsLoaded] = useState(false);
-  const [starting, setStarting] = useState(false); // 시작 중 상태(중복 클릭 방지)
+  const [starting, setStarting] = useState(false);
   const [sheetUrl, setSheetUrl] = useState(
     "https://docs.google.com/spreadsheets/d/1KlBwvsZatKpCwgmMHkRbOIHg6YccLIyr55nKtqkND-4"
   );
 
-  const [allWords, setAllWords] = useState([]);      // 전체 단어 (대문자)
-  const [remaining, setRemaining] = useState([]);    // 출제 풀(남은 문제)
-  const [current, setCurrent] = useState(null);      // 현재 정답 단어 (대문자)
+  const [allWords, setAllWords] = useState([]);
+  const [remaining, setRemaining] = useState([]);
+  const [current, setCurrent] = useState(null);
 
-  const [definition, setDefinition] = useState("");  // 힌트(영문 정의)
-  const [letters, setLetters] = useState([]);        // 팔레트(드래그 가능한 부품)
-  const [slots, setSlots] = useState([]);            // 슬롯(배치된 글자)
+  const [definition, setDefinition] = useState("");
+  const [letters, setLetters] = useState([]); // 팔레트
+  const [slots, setSlots] = useState([]);     // 슬롯
 
-  const [correctCount, setCorrectCount] = useState(0); // 맞힌 개수 (10개 달성 시 종료)
-  const [wrongList, setWrongList] = useState([]);      // {yourAnswer, correct}
+  const [correctCount, setCorrectCount] = useState(0);
+  const [wrongList, setWrongList] = useState([]);
 
   const [ledOn, setLedOn] = useState(false);
   const [flow, setFlow] = useState(false);
@@ -55,7 +52,6 @@ export default function App() {
   const buildGvizUrl = (id, gid) =>
     `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:json&range=A2:A&gid=${gid}`;
 
-  // 단어 배열을 반환하도록 구현 (버튼 1번으로 로드→시작)
   const loadFromGoogleSheet = async () => {
     const { id, gid } = parseSheetUrl(sheetUrl);
     if (!id) {
@@ -66,7 +62,7 @@ export default function App() {
       const res = await fetch(buildGvizUrl(id, gid));
       if (!res.ok) throw new Error("fetch failed");
       const text = await res.text();
-      const jsonStr = text.replace(/^[^{]+/, "").replace(/[^}]+$/, ""); // gviz 래핑 제거
+      const jsonStr = text.replace(/^[^{]+/, "").replace(/[^}]+$/, "");
       const data = JSON.parse(jsonStr);
       const rows = data?.table?.rows || [];
 
@@ -74,8 +70,8 @@ export default function App() {
         .map((r) => r?.c?.[0]?.v ?? "")
         .map((v) => String(v).trim())
         .filter(Boolean)
-        .map((w) => w.replace(/[^A-Za-z]/g, "")) // 알파벳만
-        .filter((w) => w.length >= 3)            // 최소 3글자
+        .map((w) => w.replace(/[^A-Za-z]/g, ""))
+        .filter((w) => w.length >= 3)
         .map((w) => w.toUpperCase());
 
       words = Array.from(new Set(words));
@@ -86,7 +82,7 @@ export default function App() {
       setAllWords(words);
       setRemaining(words);
       setWordsLoaded(true);
-      return words; // ✅ 반환
+      return words;
     } catch (e) {
       console.error(e);
       alert("구글시트 로딩에 실패했습니다. 공유 권한(링크가 있는 모든 사용자 보기) 또는 URL을 확인해주세요.");
@@ -110,7 +106,6 @@ export default function App() {
     pickNext(set10);
   };
 
-  // 시작 버튼 래퍼: 시트 로드 → 즉시 시작
   const startCombined = async () => {
     if (starting) return;
     setStarting(true);
@@ -127,12 +122,11 @@ export default function App() {
     }
   };
 
-  // ===== 다음 문제 선택 =====
+  // ===== 다음 문제 =====
   const pickNext = async (pool) => {
     const list = pool ?? remaining;
-    if (!list || list.length === 0) {
-      return; // 세트 종료(LED/모달은 정답 처리 시점에서 제어)
-    }
+    if (!list || list.length === 0) return;
+
     const word = list[0];
     const rest = list.slice(1);
     setRemaining(rest);
@@ -144,7 +138,7 @@ export default function App() {
     setDefinition(def || hintFallback(word));
   };
 
-  // ===== 영어 정의 가져오기 (dictionaryapi.dev) =====
+  // ===== 정의 =====
   const fetchDefinition = async (word) => {
     try {
       const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
@@ -164,51 +158,62 @@ export default function App() {
     }
   };
 
-  // ===== 정의 없을 때 대체 힌트 =====
   const hintFallback = (word) => {
     const first = word[0];
     const last = word[word.length - 1];
     return `An English word of length ${word.length}, starting with '${first}' and ending with '${last}'.`;
-  };
+    };
 
-  // ===== 팔레트(정답 문자 + 미끼 문자) =====
+  // ===== 팔레트 구성 =====
   const buildPalette = (word) => {
     const chars = word.split("");
-    const decoyCount = Math.min(5, Math.max(3, 10 - chars.length)); // 길이에 따라 3~5개
+    const decoyCount = Math.min(5, Math.max(3, 10 - chars.length));
     const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
     const notIn = alphabet.filter((c) => !chars.includes(c));
     const decoys = sample(notIn, decoyCount);
     return shuffle([...chars, ...decoys]);
   };
 
-  // ===== 드래그 앤 드롭 =====
-  const onDragStart = (e, letter) => {
-    e.dataTransfer.setData("text/plain", letter);
+  // ===== DnD 핸들러 =====
+  const onDragStartFromPalette = (e, letter, index) => {
+    e.dataTransfer.setData(DND_MIME, JSON.stringify({ from: "palette", index, letter }));
   };
+  const onDragStartFromSlot = (e, index) => {
+    const letter = slots[index];
+    if (!letter) return;
+    e.dataTransfer.setData(DND_MIME, JSON.stringify({ from: "slot", index, letter }));
+  };
+
   const onDropToSlot = (e, idx) => {
     e.preventDefault();
-    const letter = e.dataTransfer.getData("text/plain");
-    if (!letter) return;
+    const payload = e.dataTransfer.getData(DND_MIME);
+    if (!payload) return;
+    const { from, index, letter } = JSON.parse(payload);
 
-    let removed = false;
-    const newPalette = letters.filter((p) => {
-      if (!removed && p === letter) {
-        removed = true;
-        return false;
-      }
-      return true;
-    });
+    // 슬롯 이미 차있으면 거부
+    if (slots[idx] !== null) return;
 
     const newSlots = [...slots];
-    newSlots[idx] = letter;
+    const newPalette = [...letters];
+
+    if (from === "palette") {
+      // 팔레트→슬롯
+      newPalette.splice(index, 1);
+      newSlots[idx] = letter;
+    } else if (from === "slot") {
+      // 슬롯→슬롯
+      if (index === idx) return;
+      newSlots[index] = null;
+      newSlots[idx] = letter;
+    }
 
     setSlots(newSlots);
     setLetters(newPalette);
 
+    // 정답 판정
     if (newSlots.every((s) => s !== null)) {
       const attempt = newSlots.join("");
       if (attempt === current) {
-        // 정답
         playTone("success");
         setFlow(true);
         setTimeout(() => setFlow(false), 1000);
@@ -221,7 +226,6 @@ export default function App() {
           pickNext();
         }
       } else {
-        // 오답 → 기록 후 즉시 새 단어로 교체
         playTone("error");
         setShake(true);
         setWrongList((prev) => [...prev, { yourAnswer: attempt, correct: current }]);
@@ -230,6 +234,24 @@ export default function App() {
       }
     }
   };
+
+  const onDropToPalette = (e) => {
+    e.preventDefault();
+    const payload = e.dataTransfer.getData(DND_MIME);
+    if (!payload) return;
+    const { from, index, letter } = JSON.parse(payload);
+    if (from !== "slot") return; // 팔레트→팔레트는 무시
+
+    const newSlots = [...slots];
+    const newPalette = [...letters];
+
+    newSlots[index] = null;   // 슬롯 비우기
+    newPalette.push(letter);  // 팔레트 복귀
+
+    setSlots(newSlots);
+    setLetters(newPalette);
+  };
+
   const onDragOver = (e) => e.preventDefault();
 
   // ===== 사운드 =====
@@ -327,8 +349,23 @@ export default function App() {
               onDragOver={onDragOver}
               onDrop={(e) => onDropToSlot(e, i)}
               style={{ ...sx.slot, ...(shake ? sx.slotWrong : {}) }}
+              onDoubleClick={() => {             // 🔹더블클릭 시 팔레트 복귀
+                if (!slots[i]) return;
+                const newSlots = [...slots];
+                const newPalette = [...letters];
+                newPalette.push(slots[i]);
+                newSlots[i] = null;
+                setSlots(newSlots);
+                setLetters(newPalette);
+              }}
             >
-              {s ? <PartIcon letter={s} /> : <div style={sx.placeholder}>Drop</div>}
+              {s ? (
+                <div draggable onDragStart={(e) => onDragStartFromSlot(e, i)}>
+                  <PartIcon letter={s} />
+                </div>
+              ) : (
+                <div style={sx.placeholder}>Drop</div>
+              )}
             </div>
           ))}
         </div>
@@ -336,12 +373,16 @@ export default function App() {
 
       {/* 팔레트 */}
       {current && (
-        <div style={sx.paletteRow}>
+        <div
+          style={sx.paletteRow}
+          onDragOver={onDragOver}     // 🔹슬롯→팔레트 드롭 허용
+          onDrop={onDropToPalette}
+        >
           {letters.map((p, i) => (
             <div
               key={`${p}-${i}`}
               draggable
-              onDragStart={(e) => onDragStart(e, p)}
+              onDragStart={(e) => onDragStartFromPalette(e, p, i)}
               style={sx.paletteItem}
               title={`Component: ${p}`}
             >
@@ -361,7 +402,7 @@ export default function App() {
   );
 }
 
-// ---------- 전자부품 아이콘(간단한 칩 모양) ----------
+// ---------- 전자부품 아이콘 ----------
 function PartIcon({ letter }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -413,7 +454,7 @@ function CircuitSVG({ ledOn, flow }) {
   );
 }
 
-// ---------- 논리 게이트 진행(10개) ----------
+// ---------- 논리 게이트 진행 ----------
 function GateProgress({ count }) {
   const gates = useMemo(
     () => ["AND", "OR", "XOR", "NAND", "NOR", "XNOR", "NOT", "BUF", "AND", "OR"],
