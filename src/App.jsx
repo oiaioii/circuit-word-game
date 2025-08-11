@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 // =========================================
-// Circuit Word Puzzle — Google Sheets + 10 Random Words + Logic Gate Viz
+// Circuit Word Puzzle — Google Sheets + (모바일/PC 최적화)
 // =========================================
 
-const DND_MIME = "application/x-letter"; // 🔹드래그 페이로드 식별자
+const DND_MIME = "application/x-letter"; // 데스크톱 DnD 페이로드 식별자
 
 export default function App() {
   const [wordsLoaded, setWordsLoaded] = useState(false);
@@ -29,10 +29,21 @@ export default function App() {
   const [showResult, setShowResult] = useState(false);
   const [shake, setShake] = useState(false);
 
+  // 🔹모바일 최적화 관련
+  const [isTouch, setIsTouch] = useState(false);
+  const [selected, setSelected] = useState(null); // {from:'palette'|'slot', index, letter}
+  const targetCountRef = useRef(10);
+
+  // 사운드/정의 API 보조
   const audioCtxRef = useRef(null);
+  const defCacheRef = useRef(new Map());
+  const defAbortRef = useRef(null);
 
   useEffect(() => {
     audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    try {
+      setIsTouch(("ontouchstart" in window) || navigator.maxTouchPoints > 0);
+    } catch {}
   }, []);
 
   // ===== 구글시트(A2:A) 로드 =====
@@ -90,20 +101,20 @@ export default function App() {
     }
   };
 
-  // ===== 게임 시작(10문제 세트 고정) =====
+  // ===== 게임 시작(세트 고정) =====
   const startGame = async (sourceWords = allWords) => {
     try { await audioCtxRef.current?.resume?.(); } catch {}
-
     setCorrectCount(0);
     setWrongList([]);
     setShowResult(false);
     setLedOn(false);
     setFlow(false);
 
-    const set10 = shuffle(sourceWords).slice(0, Math.min(10, sourceWords.length));
-    if (set10.length === 0) return;
-    setRemaining(set10);
-    pickNext(set10);
+    const setN = shuffle(sourceWords).slice(0, Math.min(10, sourceWords.length));
+    if (setN.length === 0) return;
+    targetCountRef.current = setN.length;   // 🔹목표 문제 수 저장
+    setRemaining(setN);
+    pickNext(setN);
   };
 
   const startCombined = async () => {
@@ -140,8 +151,16 @@ export default function App() {
 
   // ===== 정의 =====
   const fetchDefinition = async (word) => {
+    // 캐시
+    if (defCacheRef.current.has(word)) return defCacheRef.current.get(word);
+    try { defAbortRef.current?.abort?.(); } catch {}
+    defAbortRef.current = new AbortController();
+
     try {
-      const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
+      const res = await fetch(
+        `https://api.dictionaryapi.dev/api/v2/entries/en/${word}`,
+        { signal: defAbortRef.current.signal }
+      );
       if (!res.ok) return "";
       const data = await res.json();
       const first = data?.[0];
@@ -149,10 +168,13 @@ export default function App() {
       for (const m of meaningBlocks) {
         const defs = m.definitions || [];
         if (defs.length > 0 && defs[0].definition) {
+          defCacheRef.current.set(word, defs[0].definition);
           return defs[0].definition;
         }
       }
-      return first?.word ? `A word related to: ${first.word}` : "";
+      const alt = first?.word ? `A word related to: ${first.word}` : "";
+      if (alt) defCacheRef.current.set(word, alt);
+      return alt;
     } catch {
       return "";
     }
@@ -162,7 +184,7 @@ export default function App() {
     const first = word[0];
     const last = word[word.length - 1];
     return `An English word of length ${word.length}, starting with '${first}' and ending with '${last}'.`;
-    };
+  };
 
   // ===== 팔레트 구성 =====
   const buildPalette = (word) => {
@@ -174,85 +196,125 @@ export default function App() {
     return shuffle([...chars, ...decoys]);
   };
 
-  // ===== DnD 핸들러 =====
+  // ===== 정답 판정(공통) =====
+  const checkAnswer = (newSlots) => {
+    if (!newSlots.every((s) => s !== null)) return;
+    const attempt = newSlots.join("");
+    if (attempt === current) {
+      playTone("success");
+      setFlow(true); setTimeout(() => setFlow(false), 1000);
+      const nextCount = correctCount + 1;
+      setCorrectCount(nextCount);
+      if (nextCount >= targetCountRef.current) {
+        setLedOn(true);
+        setTimeout(() => setShowResult(true), 400);
+      } else {
+        pickNext();
+      }
+    } else {
+      playTone("error");
+      setShake(true);
+      setWrongList((prev) => [...prev, { yourAnswer: attempt, correct: current }]);
+      setTimeout(() => setShake(false), 500);
+      pickNext();
+    }
+  };
+
+  // ===== 데스크톱 DnD 핸들러 =====
   const onDragStartFromPalette = (e, letter, index) => {
+    if (isTouch) return;
     e.dataTransfer.setData(DND_MIME, JSON.stringify({ from: "palette", index, letter }));
   };
   const onDragStartFromSlot = (e, index) => {
+    if (isTouch) return;
     const letter = slots[index];
     if (!letter) return;
     e.dataTransfer.setData(DND_MIME, JSON.stringify({ from: "slot", index, letter }));
   };
 
   const onDropToSlot = (e, idx) => {
+    if (isTouch) return;
     e.preventDefault();
     const payload = e.dataTransfer.getData(DND_MIME);
     if (!payload) return;
     const { from, index, letter } = JSON.parse(payload);
 
-    // 슬롯 이미 차있으면 거부
-    if (slots[idx] !== null) return;
-
     const newSlots = [...slots];
     const newPalette = [...letters];
 
+    // 데스크톱에선: 비어있으면 배치, 차있으면 교체(기존 글자 팔레트 복귀)
+    const prev = newSlots[idx];
+
     if (from === "palette") {
-      // 팔레트→슬롯
       newPalette.splice(index, 1);
       newSlots[idx] = letter;
+      if (prev) newPalette.push(prev);
     } else if (from === "slot") {
-      // 슬롯→슬롯
       if (index === idx) return;
-      newSlots[index] = null;
+      newSlots[index] = prev;  // 스왑
       newSlots[idx] = letter;
     }
 
     setSlots(newSlots);
     setLetters(newPalette);
-
-    // 정답 판정
-    if (newSlots.every((s) => s !== null)) {
-      const attempt = newSlots.join("");
-      if (attempt === current) {
-        playTone("success");
-        setFlow(true);
-        setTimeout(() => setFlow(false), 1000);
-        const nextCount = correctCount + 1;
-        setCorrectCount(nextCount);
-        if (nextCount >= 10) {
-          setLedOn(true);
-          setTimeout(() => setShowResult(true), 400);
-        } else {
-          pickNext();
-        }
-      } else {
-        playTone("error");
-        setShake(true);
-        setWrongList((prev) => [...prev, { yourAnswer: attempt, correct: current }]);
-        setTimeout(() => setShake(false), 500);
-        pickNext();
-      }
-    }
+    checkAnswer(newSlots);
   };
 
   const onDropToPalette = (e) => {
+    if (isTouch) return;
     e.preventDefault();
     const payload = e.dataTransfer.getData(DND_MIME);
     if (!payload) return;
     const { from, index, letter } = JSON.parse(payload);
-    if (from !== "slot") return; // 팔레트→팔레트는 무시
+    if (from !== "slot") return;
 
     const newSlots = [...slots];
     const newPalette = [...letters];
-
-    newSlots[index] = null;   // 슬롯 비우기
-    newPalette.push(letter);  // 팔레트 복귀
-
+    newSlots[index] = null;
+    newPalette.push(letter);
     setSlots(newSlots);
     setLetters(newPalette);
   };
 
-  const onDragOver = (e) => e.preventDefault();
+  const onDragOver = (e) => !isTouch && e.preventDefault();
+
+  // ===== 모바일 탭 인터랙션 =====
+  const onSelectFromPalette = (index) => {
+    if (!isTouch) return;
+    setSelected({ from: "palette", index, letter: letters[index] });
+  };
+
+  const onSlotTap = (idx) => {
+    if (!isTouch) return;
+
+    // 선택 없음 + 슬롯에 글자 있음 → 팔레트로 되돌리기
+    if (!selected && slots[idx]) {
+      const letter = slots[idx];
+      const ns = [...slots]; ns[idx] = null;
+      setSlots(ns);
+      setLetters((lp) => [...lp, letter]);
+      return;
+    }
+
+    // 선택된 글자가 있으면 배치/스왑/교체
+    if (selected) {
+      const { from, index, letter } = selected;
+      const ns = [...slots];
+      const np = [...letters];
+      const prev = ns[idx];
+
+      ns[idx] = letter;
+
+      if (from === "palette") np.splice(index, 1); // 팔레트에서 제거
+      if (from === "slot")    ns[index] = prev;    // 슬롯↔슬롯 스왑
+      else if (prev)          np.push(prev);       // 덮어쓰기면 기존 글자 팔레트 복귀
+
+      setSlots(ns);
+      setLetters(np);
+      setSelected(null);
+      checkAnswer(ns);
+    }
+  };
 
   // ===== 사운드 =====
   const playTone = (kind) => {
@@ -310,21 +372,21 @@ export default function App() {
           placeholder="구글시트 URL (A열 2행부터)"
           style={{
             flex: 1,
-            padding: "6px 8px",
-            borderRadius: 8,
+            padding: "10px 12px",
+            borderRadius: 10,
             border: "1px solid #cfe8d8",
             outline: "none",
           }}
         />
         <button style={sx.btn} onClick={startCombined} disabled={starting}>
-          {starting ? "불러오는 중..." : "게임 시작 (10문제)"}
+          {starting ? "불러오는 중..." : "게임 시작"}
         </button>
         <span style={{ marginLeft: 12, color: wordsLoaded ? "#0b8457" : "#999" }}>
           {wordsLoaded ? `단어장에서 ${allWords.length}개 영어단어 로드됨` : "버튼 클릭 시 단어장 로드"}
         </span>
       </div>
 
-      {/* 논리 게이트 진행(10개) */}
+      {/* 논리 게이트 진행(목표 수만큼) */}
       <GateProgress count={correctCount} />
 
       {/* 메인: 힌트 + 회로 */}
@@ -348,23 +410,25 @@ export default function App() {
               key={i}
               onDragOver={onDragOver}
               onDrop={(e) => onDropToSlot(e, i)}
-              style={{ ...sx.slot, ...(shake ? sx.slotWrong : {}) }}
-              onDoubleClick={() => {             // 🔹더블클릭 시 팔레트 복귀
-                if (!slots[i]) return;
-                const newSlots = [...slots];
-                const newPalette = [...letters];
-                newPalette.push(slots[i]);
-                newSlots[i] = null;
-                setSlots(newSlots);
-                setLetters(newPalette);
+              onClick={() => onSlotTap(i)}   // 모바일 탭
+              onDoubleClick={() => {        // 데스크톱: 더블클릭으로 복귀
+                if (isTouch || !slots[i]) return;
+                const ns = [...slots]; const np = [...letters];
+                np.push(slots[i]); ns[i] = null;
+                setSlots(ns); setLetters(np);
+              }}
+              style={{
+                ...sx.slot,
+                ...(shake ? sx.slotWrong : {}),
+                outline: isTouch && selected?.from === 'slot' && selected.index === i ? '2px solid #0b8457' : 'none'
               }}
             >
               {s ? (
-                <div draggable onDragStart={(e) => onDragStartFromSlot(e, i)}>
+                <div draggable={!isTouch} onDragStart={(e) => onDragStartFromSlot(e, i)}>
                   <PartIcon letter={s} />
                 </div>
               ) : (
-                <div style={sx.placeholder}>Drop</div>
+                <div style={sx.placeholder}>{isTouch ? "Tap" : "Drop"}</div>
               )}
             </div>
           ))}
@@ -375,15 +439,19 @@ export default function App() {
       {current && (
         <div
           style={sx.paletteRow}
-          onDragOver={onDragOver}     // 🔹슬롯→팔레트 드롭 허용
+          onDragOver={onDragOver}
           onDrop={onDropToPalette}
         >
           {letters.map((p, i) => (
             <div
               key={`${p}-${i}`}
-              draggable
+              draggable={!isTouch}
               onDragStart={(e) => onDragStartFromPalette(e, p, i)}
-              style={sx.paletteItem}
+              onClick={() => onSelectFromPalette(i)}
+              style={{
+                ...sx.paletteItem,
+                outline: isTouch && selected?.from === 'palette' && selected.index === i ? '2px solid #0b8457' : 'none'
+              }}
               title={`Component: ${p}`}
             >
               <PartIcon letter={p} />
@@ -396,7 +464,7 @@ export default function App() {
       {showResult && <ResultModal wrongList={wrongList} onClose={() => setShowResult(false)} />}
 
       <div style={{ marginTop: 12, color: "#667" }}>
-        <small>단어장 A열(2행부터)에서 영어단어를 읽습니다. 문제는 공개 사전 API에서 불러옵니다.</small>
+        <small>단어장 A열(2행부터)에서 영어단어를 읽습니다. 정의는 공개 사전 API에서 불러옵니다.</small>
       </div>
     </div>
   );
@@ -601,31 +669,25 @@ const sx = {
   },
   title: { margin: 0, marginBottom: 12, fontSize: 20 },
   toolbar: { display: "flex", gap: 10, alignItems: "center", marginBottom: 12 },
-  uploadLabel: {
-    border: "1px solid #cfe8d8",
-    padding: "6px 10px",
-    borderRadius: 8,
-    background: "#f5fff9",
-    cursor: "pointer",
-  },
   btn: {
-    padding: "6px 12px",
-    borderRadius: 8,
+    padding: "10px 14px",
+    borderRadius: 10,
     border: "none",
     background: "#0b8457",
     color: "#fff",
     cursor: "pointer",
   },
-  gameRow: { display: "flex", gap: 20, alignItems: "stretch" },
+  gameRow: { display: "flex", gap: 20, alignItems: "stretch", flexWrap: "wrap" },
   clueBox: {
     flex: 1,
+    minWidth: 280,
     border: "1px solid #e6f4ea",
     background: "#f7fffb",
     borderRadius: 10,
     padding: 12,
     minHeight: 110,
   },
-  circuitArea: { width: 460, display: "flex", alignItems: "center", justifyContent: "center" },
+  circuitArea: { width: 460, minWidth: 320, display: "flex", alignItems: "center", justifyContent: "center" },
   slotsRow: { display: "flex", gap: 12, marginTop: 16, justifyContent: "center", flexWrap: "wrap" },
   slot: {
     width: 84,
@@ -639,13 +701,7 @@ const sx = {
   },
   slotWrong: { border: "2px solid #e74c3c" },
   placeholder: { color: "#9aa39a", fontSize: 12 },
-  paletteRow: {
-    display: "flex",
-    gap: 12,
-    marginTop: 18,
-    flexWrap: "wrap",
-    justifyContent: "center",
-  },
+  paletteRow: { display: "flex", gap: 12, marginTop: 18, flexWrap: "wrap", justifyContent: "center" },
   paletteItem: {
     width: 84,
     height: 64,
@@ -675,7 +731,7 @@ const sx = {
     alignItems: "center",
     justifyContent: "center",
   },
-  modal: { background: "#fff", borderRadius: 12, padding: 16, width: 420, boxShadow: "0 10px 30px rgba(0,0,0,0.2)" },
+  modal: { background: "#fff", borderRadius: 12, padding: 16, width: 420, maxWidth: "92vw", boxShadow: "0 10px 30px rgba(0,0,0,0.2)" },
   wrongList: { maxHeight: 280, overflow: "auto", padding: 8, border: "1px solid #eee", borderRadius: 8, background: "#fcfdfc" },
   wrongItem: { padding: "6px 8px", borderBottom: "1px dashed #e9ece8" },
 };
