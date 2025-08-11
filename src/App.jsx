@@ -66,7 +66,7 @@ export default function App() {
   const loadFromGoogleSheet = async () => {
     const { id, gid } = parseSheetUrl(sheetUrl);
     if (!id) {
-      alert("유효한 구글시트 URL이 아닙니다.");
+      alert("유효한 단어장(구글시트 URL)이 아닙니다.");
       return [];
     }
     try {
@@ -87,7 +87,7 @@ export default function App() {
 
       words = Array.from(new Set(words));
       if (words.length === 0) {
-        alert("구글시트에서 단어를 찾지 못했습니다. A열 2행부터 영단어가 있는지 확인해주세요.");
+        alert("단어장에서 단어를 찾지 못했습니다. A열 2행부터 영단어가 있는지 확인해주세요.");
         return [];
       }
       setAllWords(words);
@@ -96,7 +96,7 @@ export default function App() {
       return words;
     } catch (e) {
       console.error(e);
-      alert("구글시트 로딩에 실패했습니다. 공유 권한(링크가 있는 모든 사용자 보기) 또는 URL을 확인해주세요.");
+      alert("단어장 로딩에 실패했습니다. 공유 권한(링크가 있는 모든 사용자 보기) 또는 URL을 확인해주세요.");
       return [];
     }
   };
@@ -382,7 +382,7 @@ export default function App() {
           {starting ? "불러오는 중..." : "게임 시작"}
         </button>
         <span style={{ marginLeft: 12, color: wordsLoaded ? "#0b8457" : "#999" }}>
-          {wordsLoaded ? `단어장에서 ${allWords.length}개 영어단어 로드됨` : "버튼 클릭 시 단어장 로드"}
+          {wordsLoaded ? `단어장에서 ${allWords.length}개 영단어 로드됨` : "버튼 클릭 시 단어장 로드"}
         </span>
       </div>
 
@@ -464,7 +464,7 @@ export default function App() {
       {showResult && <ResultModal wrongList={wrongList} onClose={() => setShowResult(false)} />}
 
       <div style={{ marginTop: 12, color: "#667" }}>
-        <small>단어장 A열(2행부터)에서 영어단어를 읽습니다. 정의는 공개 사전 API에서 불러옵니다.</small>
+        <small>단어장 A열(2행부터)에서 영단어를 읽습니다. 힌트는 공개 사전 API에서 불러옵니다.</small>
       </div>
     </div>
   );
