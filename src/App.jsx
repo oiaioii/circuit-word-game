@@ -6,7 +6,22 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const DND_MIME = "application/x-letter"; // 데스크톱 DnD 페이로드 식별자
 
+// 화면 폭으로 모바일 여부 판단
+function useIsMobile(breakpoint = 640) {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width:${breakpoint}px)`);
+    const onChange = (e) => setIsMobile(e.matches);
+    setIsMobile(mq.matches);
+    mq.addEventListener?.("change", onChange);
+    return () => mq.removeEventListener?.("change", onChange);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 export default function App() {
+  const isMobile = useIsMobile(640);
+
   const [wordsLoaded, setWordsLoaded] = useState(false);
   const [starting, setStarting] = useState(false);
   const [sheetUrl, setSheetUrl] = useState(
@@ -29,7 +44,7 @@ export default function App() {
   const [showResult, setShowResult] = useState(false);
   const [shake, setShake] = useState(false);
 
-  // 🔹모바일 최적화 관련
+  // 모바일/터치 체크
   const [isTouch, setIsTouch] = useState(false);
   const [selected, setSelected] = useState(null); // {from:'palette'|'slot', index, letter}
   const targetCountRef = useRef(10);
@@ -66,7 +81,7 @@ export default function App() {
   const loadFromGoogleSheet = async () => {
     const { id, gid } = parseSheetUrl(sheetUrl);
     if (!id) {
-      alert("유효한 단어장(구글시트 URL)이 아닙니다.");
+      alert("유효한 구글시트 URL이 아닙니다.");
       return [];
     }
     try {
@@ -87,7 +102,7 @@ export default function App() {
 
       words = Array.from(new Set(words));
       if (words.length === 0) {
-        alert("단어장에서 단어를 찾지 못했습니다. A열 2행부터 영단어가 있는지 확인해주세요.");
+        alert("구글시트에서 단어를 찾지 못했습니다. A열 2행부터 영단어가 있는지 확인해주세요.");
         return [];
       }
       setAllWords(words);
@@ -96,7 +111,7 @@ export default function App() {
       return words;
     } catch (e) {
       console.error(e);
-      alert("단어장 로딩에 실패했습니다. 공유 권한(링크가 있는 모든 사용자 보기) 또는 URL을 확인해주세요.");
+      alert("구글시트 로딩에 실패했습니다. 공유 권한(링크가 있는 모든 사용자 보기) 또는 URL을 확인해주세요.");
       return [];
     }
   };
@@ -112,7 +127,7 @@ export default function App() {
 
     const setN = shuffle(sourceWords).slice(0, Math.min(10, sourceWords.length));
     if (setN.length === 0) return;
-    targetCountRef.current = setN.length;   // 🔹목표 문제 수 저장
+    targetCountRef.current = setN.length;   // 목표 문제 수 저장
     setRemaining(setN);
     pickNext(setN);
   };
@@ -151,7 +166,6 @@ export default function App() {
 
   // ===== 정의 =====
   const fetchDefinition = async (word) => {
-    // 캐시
     if (defCacheRef.current.has(word)) return defCacheRef.current.get(word);
     try { defAbortRef.current?.abort?.(); } catch {}
     defAbortRef.current = new AbortController();
@@ -242,7 +256,7 @@ export default function App() {
     const newSlots = [...slots];
     const newPalette = [...letters];
 
-    // 데스크톱에선: 비어있으면 배치, 차있으면 교체(기존 글자 팔레트 복귀)
+    // 비어있으면 배치, 차있으면 교체/스왑
     const prev = newSlots[idx];
 
     if (from === "palette") {
@@ -358,10 +372,16 @@ export default function App() {
     return shuffle(arr).slice(0, n);
   }
 
+  // 반응형 크기(모바일 전용 축소)
+  const SLOT_W = isMobile ? 64 : 84;
+  const SLOT_H = isMobile ? 56 : 64;
+  const CHIP_W = isMobile ? 72 : 84;
+  const CHIP_H = isMobile ? 56 : 64;
+
   // ===== UI =====
   return (
-    <div style={sx.app}>
-      <h1 style={sx.title}>😊Circuit Word Puzzle📱</h1>
+    <div style={{ ...sx.app, padding: isMobile ? 12 : 20, maxWidth: isMobile ? 560 : 1000 }}>
+      <h1 style={{ ...sx.title, fontSize: isMobile ? 18 : 20 }}>😊Circuit Word Puzzle📱</h1>
 
       {/* 시작(구글시트 자동 로드) */}
       <div style={sx.toolbar}>
@@ -372,22 +392,24 @@ export default function App() {
           placeholder="구글시트 URL (A열 2행부터)"
           style={{
             flex: 1,
-            padding: "10px 12px",
+            padding: isMobile ? "8px 10px" : "10px 12px",
             borderRadius: 10,
             border: "1px solid #cfe8d8",
             outline: "none",
           }}
         />
-        <button style={sx.btn} onClick={startCombined} disabled={starting}>
+        <button style={{ ...sx.btn, padding: isMobile ? "8px 12px" : "10px 14px" }} onClick={startCombined} disabled={starting}>
           {starting ? "불러오는 중..." : "게임 시작"}
         </button>
-        <span style={{ marginLeft: 12, color: wordsLoaded ? "#0b8457" : "#999" }}>
-          {wordsLoaded ? `단어장에서 ${allWords.length}개 영단어 로드됨` : "버튼 클릭 시 단어장 로드"}
-        </span>
+        {!isMobile && (
+          <span style={{ marginLeft: 12, color: wordsLoaded ? "#0b8457" : "#999" }}>
+            {wordsLoaded ? `단어장에서 ${allWords.length}개 영어단어 로드됨` : "버튼 클릭 시 단어장 로드"}
+          </span>
+        )}
       </div>
 
       {/* 논리 게이트 진행(목표 수만큼) */}
-      <GateProgress count={correctCount} />
+      <GateProgress count={correctCount} isMobile={isMobile} />
 
       {/* 메인: 힌트 + 회로 */}
       {current && (
@@ -396,7 +418,7 @@ export default function App() {
             <div style={{ fontSize: 13, color: "#678" }}>Definition (English)</div>
             <div style={{ marginTop: 8, lineHeight: 1.5 }}>{definition}</div>
           </div>
-          <div style={sx.circuitArea}>
+          <div style={{ ...sx.circuitArea, width: isMobile ? "100%" : 460, minWidth: isMobile ? 0 : 320 }}>
             <CircuitSVG ledOn={ledOn} flow={flow} />
           </div>
         </div>
@@ -419,13 +441,15 @@ export default function App() {
               }}
               style={{
                 ...sx.slot,
+                width: SLOT_W,
+                height: SLOT_H,
                 ...(shake ? sx.slotWrong : {}),
                 outline: isTouch && selected?.from === 'slot' && selected.index === i ? '2px solid #0b8457' : 'none'
               }}
             >
               {s ? (
                 <div draggable={!isTouch} onDragStart={(e) => onDragStartFromSlot(e, i)}>
-                  <PartIcon letter={s} />
+                  <PartIcon letter={s} small={isMobile} />
                 </div>
               ) : (
                 <div style={sx.placeholder}>{isTouch ? "Tap" : "Drop"}</div>
@@ -450,11 +474,13 @@ export default function App() {
               onClick={() => onSelectFromPalette(i)}
               style={{
                 ...sx.paletteItem,
+                width: CHIP_W,
+                height: CHIP_H,
                 outline: isTouch && selected?.from === 'palette' && selected.index === i ? '2px solid #0b8457' : 'none'
               }}
               title={`Component: ${p}`}
             >
-              <PartIcon letter={p} />
+              <PartIcon letter={p} small={isMobile} />
             </div>
           ))}
         </div>
@@ -464,17 +490,19 @@ export default function App() {
       {showResult && <ResultModal wrongList={wrongList} onClose={() => setShowResult(false)} />}
 
       <div style={{ marginTop: 12, color: "#667" }}>
-        <small>단어장 A열(2행부터)에서 영단어를 읽습니다. 힌트는 공개 사전 API에서 불러옵니다.</small>
+        <small>단어장 A열(2행부터)에서 영어단어를 읽습니다. 정의는 공개 사전 API에서 불러옵니다.</small>
       </div>
     </div>
   );
 }
 
 // ---------- 전자부품 아이콘 ----------
-function PartIcon({ letter }) {
+function PartIcon({ letter, small }) {
+  const w = small ? 56 : 64;
+  const h = small ? 36 : 40;
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <svg width="64" height="40" viewBox="0 0 64 40">
+      <svg width={w} height={h} viewBox="0 0 64 40">
         <rect x="0" y="0" width="64" height="40" rx="6" fill="#0b3d2e" />
         <rect x="8" y="8" width="48" height="24" rx="4" fill="#d9e4c8" />
         <rect x="2" y="12" width="4" height="2" fill="#6b6b6b" />
@@ -482,16 +510,16 @@ function PartIcon({ letter }) {
         <rect x="58" y="12" width="4" height="2" fill="#6b6b6b" />
         <rect x="58" y="26" width="4" height="2" fill="#6b6b6b" />
       </svg>
-      <div style={{ marginTop: -32, fontWeight: 700, color: "#123" }}>{letter}</div>
+      <div style={{ marginTop: small ? -30 : -32, fontWeight: 700, color: "#123" }}>{letter}</div>
     </div>
   );
 }
 
-// ---------- 회로 + LED ----------
+// ---------- 회로 + LED (반응형) ----------
 function CircuitSVG({ ledOn, flow }) {
   return (
-    <div style={{ width: 420 }}>
-      <svg width="420" height="160" viewBox="0 0 420 160">
+    <div style={{ width: "100%" }}>
+      <svg viewBox="0 0 420 160" style={{ width: "100%", height: "auto", display: "block" }}>
         <rect x="0" y="0" width="420" height="160" fill="#f6fbf8" rx="10" />
         <path
           d="M20 80 C 90 10, 160 10, 230 80 S 330 150, 400 80"
@@ -523,34 +551,41 @@ function CircuitSVG({ ledOn, flow }) {
 }
 
 // ---------- 논리 게이트 진행 ----------
-function GateProgress({ count }) {
+function GateProgress({ count, isMobile }) {
   const gates = useMemo(
     () => ["AND", "OR", "XOR", "NAND", "NOR", "XNOR", "NOT", "BUF", "AND", "OR"],
     []
   );
   return (
-    <div style={sx.gateRow}>
+    <div style={{
+      ...sx.gateRow,
+      gridTemplateColumns: isMobile ? "repeat(5, 1fr)" : "repeat(10, 1fr)",
+      gap: isMobile ? 6 : 8
+    }}>
       {gates.map((g, i) => (
         <div
           key={i}
           style={{
             ...sx.gateBox,
+            padding: isMobile ? 4 : 6,
             borderColor: i < count ? "#0b8457" : "#d6e2da",
             background: i < count ? "#e8fff4" : "#fff",
           }}
         >
-          <GateIcon type={g} active={i < count} />
+          <GateIcon type={g} active={i < count} small={isMobile} />
         </div>
       ))}
     </div>
   );
 }
 
-function GateIcon({ type, active }) {
+function GateIcon({ type, active, small }) {
   const stroke = active ? "#0b8457" : "#98a6a0";
   const fill = active ? "#b9f5d6" : "#e9efec";
+  const w = small ? 48 : 60;
+  const h = small ? 28 : 36;
   return (
-    <svg width="60" height="36" viewBox="0 0 60 36">
+    <svg width={w} height={h} viewBox="0 0 60 36">
       {type === "AND" && (
         <g>
           <rect x="5" y="6" width="30" height="24" rx="4" fill={fill} stroke={stroke} />
@@ -668,7 +703,7 @@ const sx = {
     boxShadow: "0 8px 24px rgba(20,20,20,0.06)",
   },
   title: { margin: 0, marginBottom: 12, fontSize: 20 },
-  toolbar: { display: "flex", gap: 10, alignItems: "center", marginBottom: 12 },
+  toolbar: { display: "flex", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" },
   btn: {
     padding: "10px 14px",
     borderRadius: 10,
@@ -680,7 +715,7 @@ const sx = {
   gameRow: { display: "flex", gap: 20, alignItems: "stretch", flexWrap: "wrap" },
   clueBox: {
     flex: 1,
-    minWidth: 280,
+    minWidth: 260,
     border: "1px solid #e6f4ea",
     background: "#f7fffb",
     borderRadius: 10,
