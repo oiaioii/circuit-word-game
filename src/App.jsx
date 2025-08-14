@@ -6,6 +6,33 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const DND_MIME = "application/x-letter"; // 데스크톱 DnD 페이로드 식별자
 
+// 정답을 틀릴 경우 다음으로 넘어감
+function handleSubmit() {
+  if (!current) return;
+  const guess = slots.map((s) => s?.letter || "").join("");
+  const answer = current;
+
+  if (guess === answer) {
+    playCorrect();
+    setCorrectCount((c) => c + 1);
+    setLedOn(true);
+    setFlow(true);
+    setTimeout(() => {
+      setLedOn(false);
+      setFlow(false);
+      pickNext(remaining);
+    }, 1200);
+  } else {
+    playWrong();
+    setWrongList((list) => [...list, current]);
+
+    // ✅ 틀렸을 경우에도 다음 단어로 진행
+    setTimeout(() => {
+      pickNext(remaining);
+    }, 1000);
+  }
+}
+
 // 화면 폭으로 모바일 여부 판단
 function useIsMobile(breakpoint = 640) {
   const [isMobile, setIsMobile] = useState(false);
