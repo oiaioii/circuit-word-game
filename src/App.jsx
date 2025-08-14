@@ -517,7 +517,7 @@ export default function App() {
       {showResult && <ResultModal wrongList={wrongList} onClose={() => setShowResult(false)} />}
 
       <div style={{ marginTop: 12, color: "#667" }}>
-        <small>단어장 A열(2행부터)에서 영어단어를 읽습니다. 정의는 공개 사전 API에서 불러옵니다.</small>
+        <small>단어장 A열(2행부터)에서 영어단어를 읽습니다. 힌트는 공개 사전 API에서 불러옵니다.</small>
       </div>
     </div>
   );
@@ -797,3 +797,4 @@ const sx = {
   wrongList: { maxHeight: 280, overflow: "auto", padding: 8, border: "1px solid #eee", borderRadius: 8, background: "#fcfdfc" },
   wrongItem: { padding: "6px 8px", borderBottom: "1px dashed #e9ece8" },
 };
+
