@@ -47,7 +47,7 @@ export default function App() {
   // 모바일/터치 체크
   const [isTouch, setIsTouch] = useState(false);
   const [selected, setSelected] = useState(null); // {from:'palette'|'slot', index, letter}
-  const targetCountRef = useRef(10);
+  const targetCountRef = useRef(5); // 문제 수를 10 → 5개로 축소
 
   // 사운드/정의 API 보조
   const audioCtxRef = useRef(null);
@@ -125,7 +125,7 @@ export default function App() {
     setLedOn(false);
     setFlow(false);
 
-    const setN = shuffle(sourceWords).slice(0, Math.min(10, sourceWords.length));
+    const setN = shuffle(sourceWords).slice(0, Math.min(5, sourceWords.length)); // 수정사항 1: 문제 수를 10 → 5개로 축소
     if (setN.length === 0) return;
     targetCountRef.current = setN.length;   // 목표 문제 수 저장
     setRemaining(setN);
@@ -403,7 +403,7 @@ export default function App() {
         </button>
         {!isMobile && (
           <span style={{ marginLeft: 12, color: wordsLoaded ? "#0b8457" : "#999" }}>
-            {wordsLoaded ? `단어장에서 ${allWords.length}개 영단어 로드됨` : "버튼 클릭 시 단어장 로드"}
+            {wordsLoaded ? `단어장에서 ${allWords.length}개 영어단어 로드됨` : "버튼 클릭 시 단어장 로드"}
           </span>
         )}
       </div>
@@ -490,7 +490,7 @@ export default function App() {
       {showResult && <ResultModal wrongList={wrongList} onClose={() => setShowResult(false)} />}
 
       <div style={{ marginTop: 12, color: "#667" }}>
-        <small>단어장 A열(2행부터)에서 영어단어를 읽습니다. 힌트는 공개 사전 API에서 불러옵니다.</small>
+        <small>단어장 A열(2행부터)에서 영어단어를 읽습니다. 정의는 공개 사전 API에서 불러옵니다.</small>
       </div>
     </div>
   );
@@ -568,11 +568,11 @@ function GateProgress({ count, isMobile }) {
           style={{
             ...sx.gateBox,
             padding: isMobile ? 4 : 6,
-            borderColor: i < count ? "#0b8457" : "#d6e2da",
-            background: i < count ? "#e8fff4" : "#fff",
+            borderColor: i < count * 2 ? "#0b8457" : "#d6e2da",  // 2개씩 불이 들어옴
+            background: i < count * 2 ? "#e8fff4" : "#fff",
           }}
         >
-          <GateIcon type={g} active={i < count} small={isMobile} />
+          <GateIcon type={g} active={i < count * 2} small={isMobile} />
         </div>
       ))}
     </div>
@@ -770,4 +770,3 @@ const sx = {
   wrongList: { maxHeight: 280, overflow: "auto", padding: 8, border: "1px solid #eee", borderRadius: 8, background: "#fcfdfc" },
   wrongItem: { padding: "6px 8px", borderBottom: "1px dashed #e9ece8" },
 };
-
